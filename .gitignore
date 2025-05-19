@@ -1,5 +1,77 @@
-# Object file
-*.o
+import requests
+import asyncio
+import json
+import os
+from telegram import Bot
 
-# Ada Library Information
-*.ali
+TOKEN = "7682915566:AAFce2UQTA19k_NnyErS3FYCxqgKW51kBlo"
+CHAT_ID = -1001234567890  # chat_id گروه رو اینجا بذار
+
+bot = Bot(token=TOKEN)
+PRICE_FILE = "prices.json"
+
+symbols = {
+    "price_dolar_rl": "دلار",
+    "price_eur": "یورو",
+    "price_aed": "درهم",
+    "sekebahar": "سکه",
+    "geram18": "طلای ۱۸ عیار"
+}
+
+def load_prices():
+    if os.path.exists(PRICE_FILE):
+        with open(PRICE_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_prices(prices):
+    with open(PRICE_FILE, "w") as f:
+        json.dump(prices, f)
+
+async def fetch_prices():
+    try:
+        url = "https://api.tgju.org/v1/market/summary"
+        res = requests.get(url, timeout=10)
+        data = res.json().get("data", {})
+        prices = {}
+        for key in symbols:
+            if key in data:
+                prices[key] = int(data[key]["price"])
+        return prices
+    except Exception as e:
+        print("Error fetching prices:", e)
+        return {}
+
+def build_price_message(new_prices, old_prices):
+    lines = ["<b>تغییرات قیمت لحظه‌ای:</b>"]
+    for key, label in symbols.items():
+        new = new_prices.get(key)
+        old = old_prices.get(key)
+        if new is None:
+            continue
+        if old is None or new != old:
+            if old:
+                if new > old:
+                    color = "green"
+                    sign = "⬆️"
+                else:
+                    color = "red"
+                    sign = "⬇️"
+                line = f"{sign} <b>{label}:</b> <font color='{color}'>{new:,} ریال</font> (قبلی: {old:,})"
+            else:
+                line = f"<b>{label}:</b> {new:,} ریال"
+            lines.append(line)
+    return "\n".join(lines) if len(lines) > 1 else None
+
+async def price_loop():
+    while True:
+        old_prices = load_prices()
+        new_prices = await fetch_prices()
+        message = build_price_message(new_prices, old_prices)
+        if message:
+            await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="HTML")
+            save_prices(new_prices)
+        await asyncio.sleep(600)  # هر 10 دقیقه
+
+if __name__ == "__main__":
+    asyncio.run(price_loop())
